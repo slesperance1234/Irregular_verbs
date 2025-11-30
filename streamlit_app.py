@@ -423,7 +423,7 @@ def menu_principal():
     elif mode == "2. Saisie de Texte (Tableau - 10 verbes)":
         executer_quiz_saisie()
     else:
-        st.title("Bienvenue au Maître des Verbes Irréguliers !")
+        st.title("Bienvenue au Maître des verbes irréguliers !")
         st.markdown("Veuillez choisir un mode d'exercice dans le menu déroulant à gauche pour commencer :")
         st.markdown("* **Mode QCM :** Test rapide pour identifier la Base Form et le Simple Past parmi des choix multiples.")
         st.markdown("* **Mode Saisie :** Exercice de mémorisation où vous devez écrire les deux formes dans un tableau.")
