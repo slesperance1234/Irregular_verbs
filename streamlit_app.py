@@ -2,6 +2,8 @@ import streamlit as st
 import random
 import pandas as pd
 
+#30 nov 16h05
+
 # --- 1. Définition des données des verbes irréguliers ---
 
 VERBES = [
@@ -120,13 +122,17 @@ MAX_POINTS_PAR_CELLULE = 5 # Points de base pour le mode Saisie
 
 def reinitialiser_session():
     """Supprime toutes les variables d'état pour recommencer."""
+    # Réinitialise les états liés aux quizzes sans perdre la sélection de verbes
+    preserve = ['mode_selectionne', 'selected_mode', 'verbs_selected_labels', 'selected_verbes']
     for key in list(st.session_state.keys()):
-        # Conserver la sélection du mode si elle existe
-        if key not in ['mode_selectionne']:
-            del st.session_state[key]
+        if key in preserve:
+            continue
+        del st.session_state[key]
+    # Valeurs par défaut
     st.session_state.quiz_fini = False
     st.session_state.score_total = 0
-    st.rerun()
+    st.session_state.started = False
+    # Le rerun n'est pas nécessaire : les boutons déclenchent un rerun automatiquement
 
 def calculer_points(tentatives, max_points):
     """Calcule le score basé sur le nombre de tentatives."""
@@ -139,8 +145,16 @@ def initialiser_session_qcm():
     if 'score_qcm' not in st.session_state: st.session_state.score_qcm = 0
     if 'question_actuelle' not in st.session_state: st.session_state.question_actuelle = 0
     if 'quiz_fini' not in st.session_state: st.session_state.quiz_fini = False
+    # Déterminer le pool et le nombre effectif de questions (éviter répétitions non souhaitées)
     if 'sequence_questions' not in st.session_state:
-        st.session_state.sequence_questions = random.sample(VERBES, NB_QUESTIONS_QCM)
+        pool = st.session_state.get('selected_verbes') or VERBES
+        effective = min(NB_QUESTIONS_QCM, len(pool))
+        st.session_state.effective_nb_qcm = effective
+        if len(pool) < NB_QUESTIONS_QCM:
+            # On préfère réduire le nombre de questions plutôt que répéter
+            st.session_state.sequence_questions = random.sample(pool, effective)
+        else:
+            st.session_state.sequence_questions = random.sample(pool, NB_QUESTIONS_QCM)
     if 'current_verb_data' not in st.session_state: st.session_state.current_verb_data = None
     if 'phase' not in st.session_state: st.session_state.phase = 'base_form'
     if 'tentatives_base' not in st.session_state: st.session_state.tentatives_base = 0
@@ -148,6 +162,7 @@ def initialiser_session_qcm():
     if 'choices_base' not in st.session_state: st.session_state.choices_base = []
     if 'choices_past' not in st.session_state: st.session_state.choices_past = []
     if 'base_correcte' not in st.session_state: st.session_state.base_correcte = False
+    if 'past_correcte' not in st.session_state: st.session_state.past_correcte = False
 
 def generer_choix_qcm(bonne_reponse_key, nombre=5):
     """Génère les choix de réponse pour le QCM."""
@@ -164,17 +179,16 @@ def generer_choix_qcm(bonne_reponse_key, nombre=5):
 
 def generer_choix_past_intelligent_qcm(verbe_base, verbe_past, nombre=5):
     """Génère des choix de réponse crédibles pour le Simple Past QCM."""
-    distracteurs = set()
-    distracteurs.add(verbe_base) 
+    # Choisir des distracteurs parmi les formes au prétérit des autres verbes
     autres_pasts = [v['past'] for v in VERBES if v['past'] != verbe_past]
+    # Nettoyage: si une forme contient plusieurs alternatives séparées par ',', on considère l'ensemble
+    autres_pasts = list(dict.fromkeys(autres_pasts))  # unique
     random.shuffle(autres_pasts)
-    nombre_de_distracteurs_a_ajouter = nombre - 1
-    for past_form in autres_pasts:
-        if past_form not in distracteurs and len(distracteurs) < nombre_de_distracteurs_a_ajouter:
-            distracteurs.add(past_form)
-        if len(distracteurs) == nombre_de_distracteurs_a_ajouter: break
-    choix_list = list(distracteurs)
-    if verbe_past not in choix_list: choix_list.append(verbe_past)
+    nombre_distracteurs = min(nombre - 1, len(autres_pasts))
+    distracteurs = autres_pasts[:nombre_distracteurs]
+    choix_list = distracteurs.copy()
+    if verbe_past not in choix_list:
+        choix_list.append(verbe_past)
     random.shuffle(choix_list)
     return choix_list
 
@@ -184,62 +198,54 @@ def passer_a_la_question_suivante_qcm():
     st.session_state.tentatives_base = 0
     st.session_state.tentatives_past = 0
     st.session_state.current_verb_data = None
-    st.session_state.base_correcte = False 
+    st.session_state.base_correcte = False
+    st.session_state.past_correcte = False
+    # Réinitialiser les choix pour la nouvelle question afin qu'ils soient régénérés
+    st.session_state.choices_base = []
+    st.session_state.choices_past = []
     if st.session_state.question_actuelle >= NB_QUESTIONS_QCM:
         st.session_state.quiz_fini = True
-    st.rerun()
 
 def transition_vers_simple_past_qcm():
     st.session_state.phase = 'simple_past'
+    st.session_state.base_correcte = False
+    # Forcer la régénération des choix du Simple Past pour le verbe courant
+    st.session_state.choices_past = []
 
 def verifier_reponse_qcm(reponse_utilisateur, bonne_reponse, type_question):
-    # Récupérer les choix actuels pour pouvoir identifier la colonne de la bonne réponse
-    choices = st.session_state.choices_base if type_question == 'base_form' else st.session_state.choices_past
     
     if reponse_utilisateur == bonne_reponse:
         st.success("🎉 **Bonne réponse !**")
-        
+
         points = calculer_points(st.session_state.tentatives_base if type_question == 'base_form' else st.session_state.tentatives_past, 3)
         st.session_state.score_qcm += points
-        
-        # --- NOUVELLE LOGIQUE POUR POSITIONNER LE BOUTON SUIVANT ---
-        
-        # 1. Trouver l'index de la bonne réponse
-        try:
-            index_bonne_reponse = choices.index(bonne_reponse)
-        except ValueError:
-            # Sécurité si la bonne réponse n'est pas trouvée (ne devrait pas arriver)
-            index_bonne_reponse = 0
 
-        # 2. Créer les colonnes (doit correspondre au nombre de choix de la question actuelle)
-        # Note : On recrée les colonnes ici pour garantir l'alignement
-        cols_alignment = st.columns(len(choices))
-        
-        with cols_alignment[index_bonne_reponse]:
-            # 3. Placer le bouton 'Question suivante' directement sous la bonne réponse
-            if type_question == 'base_form':
-                # Pour Base Form, on passe à l'étape Simple Past
-                st.button("👉 Continuer vers le Simple Past", on_click=transition_vers_simple_past_qcm, use_container_width=True)
-            else:
-                # Pour Simple Past, on passe à la question suivante
-                st.button("✅ Question suivante", on_click=passer_a_la_question_suivante_qcm, use_container_width=True)
-        # ----------------------------------------------------------------
-        
+        # Marquer l'étape comme réussie ; ceci déclenchera l'affichage du bouton de suite lors du rerun
+        if type_question == 'base_form':
+            st.session_state.base_correcte = True
+        else:
+            st.session_state.past_correcte = True
+
         st.info(f"Vous avez gagné **{points} points** pour cette étape. Score total : **{st.session_state.score_qcm}**")
-        st.session_state.choices_base = [] 
-        st.session_state.choices_past = [] 
+        # Lorsque cette fonction est utilisée comme callback (`on_click`),
+        # Streamlit provoque déjà un rerun après exécution du callback.
+        # On évite d'appeler `st.rerun()` ici pour prévenir des comportements
+        # de re-rendering inattendus.
+        pass
         
     else:
         st.warning("❌ **Mauvaise réponse.** Essayez encore !")
         if type_question == 'base_form':
             st.session_state.tentatives_base += 1
+            # Retirer la mauvaise réponse des choix disponibles
             if reponse_utilisateur in st.session_state.choices_base:
                  st.session_state.choices_base.remove(reponse_utilisateur)
         else:
             st.session_state.tentatives_past += 1
+            # Retirer la mauvaise réponse des choix disponibles
             if reponse_utilisateur in st.session_state.choices_past:
                  st.session_state.choices_past.remove(reponse_utilisateur)
-        st.rerun()
+        # Pas de rerun forcé ici non plus.
 
 def executer_quiz_qcm():
     initialiser_session_qcm()
@@ -252,14 +258,28 @@ def executer_quiz_qcm():
         st.metric(label="Score total", value=st.session_state.score_qcm)
     
     with col_progress:
-        progress_val = (st.session_state.question_actuelle) / NB_QUESTIONS_QCM
-        st.progress(progress_val, text=f"Progression : Question {st.session_state.question_actuelle + 1} / {NB_QUESTIONS_QCM}")
+        total_q = st.session_state.get('effective_nb_qcm', NB_QUESTIONS_QCM)
+        progress_val = (st.session_state.question_actuelle) / total_q
+        st.progress(progress_val, text=f"Progression : Question {st.session_state.question_actuelle + 1} / {total_q}")
     
     st.markdown("---")
     
     if st.session_state.quiz_fini:
         st.balloons()
         st.header(f"🎉 Quiz Terminé ! Votre score final est de **{st.session_state.score_qcm}** points.")
+        st.markdown("---")
+        st.markdown("### Contrôles de l'Exercice")
+        cols = st.columns([1, 2])
+        with cols[0]:
+            if st.button("Reconfigurer"):
+                st.session_state.started = False
+                # le rerun est implicite après le clic sur le bouton
+            
+        with cols[1]:
+            if st.button("Réinitialiser le Quiz Actuel"):
+                reinitialiser_session()
+                # le rerun est implicite après le clic sur le bouton
+        
         if st.button("Recommencer le Quiz QCM"):
             reinitialiser_session()
         return
@@ -269,18 +289,17 @@ def executer_quiz_qcm():
             st.session_state.current_verb_data = st.session_state.sequence_questions[st.session_state.question_actuelle]
         except IndexError:
             st.session_state.quiz_fini = True
-            st.rerun()
             return
 
     verbe = st.session_state.current_verb_data
     
     st.subheader(f"Question {st.session_state.question_actuelle + 1}")
-    st.header(f"Verbe en français : **{verbe['fr']}**") 
+    st.header(f"**{verbe['fr']}**") 
     st.markdown("---")
 
     # --- Étape 1 : Deviner la BASE FORM ---
     if st.session_state.phase == 'base_form':
-        st.subheader("1. Quelle est la **Base Form** ?")
+        st.subheader("**Base Form** ?")
         
         if not st.session_state.choices_base:
             st.session_state.choices_base = generer_choix_qcm('base')
@@ -289,22 +308,35 @@ def executer_quiz_qcm():
         
         cols = st.columns(len(choices))
         
-        if not st.session_state.base_correcte:
-            for i, choice in enumerate(choices):
-                key = f"base_choice_{i}_{verbe['fr']}" 
-                with cols[i]:
-                    if st.button(f"{choice}", key=key, use_container_width=True):
-                        verifier_reponse_qcm(choice, verbe['base'], 'base_form')
-        
-        if st.session_state.base_correcte:
-            st.button("👉 Continuer vers le Simple Past", on_click=transition_vers_simple_past_qcm)
+        # Trouver l'indice de la bonne réponse
+        index_bonne = -1
+        try:
+            index_bonne = choices.index(verbe['base'])
+        except ValueError:
+            pass 
+
+        for i, choice in enumerate(choices):
+            key = f"base_choice_{i}_{verbe['fr']}" 
+            with cols[i]:
+                if not st.session_state.base_correcte:
+                    # Boutons cliquables utilisant un callback pour éviter des reruns forcés
+                    st.button(f"{choice}", key=key, use_container_width=True, on_click=verifier_reponse_qcm, args=(choice, verbe['base'], 'base_form'))
+                else:
+                    # Afficher le texte statique si la réponse est correcte
+                    # Mettre en gras la bonne réponse pour la visibilité
+                    st.write(f"**{choice}**" if i == index_bonne else choice)
+                    
+                    # AFFICHAGE DU BOUTON SOUS LA BONNE RÉPONSE
+                    if i == index_bonne:
+                        # Ce bouton apparaît automatiquement après la mise à jour de l'état
+                        st.button("👉 Continuer vers le Simple Past", on_click=transition_vers_simple_past_qcm, use_container_width=True)
 
 
     # --- Étape 2 : Deviner le SIMPLE PAST ---
     elif st.session_state.phase == 'simple_past':
         
         st.subheader(f"Base Form : **{verbe['base']}**")
-        st.subheader("2. Quel est le **Simple Past** (Prétérit) ?")
+        st.subheader("2. **Simple Past** ?")
         
         if not st.session_state.choices_past:
             st.session_state.choices_past = generer_choix_past_intelligent_qcm(verbe['base'], verbe['past']) 
@@ -313,11 +345,24 @@ def executer_quiz_qcm():
         
         cols = st.columns(len(choices))
         
+        index_bonne_past = -1
+        try:
+            index_bonne_past = choices.index(verbe['past'])
+        except ValueError:
+            pass
+
         for i, choice in enumerate(choices):
             key = f"past_choice_{i}_{verbe['fr']}"
             with cols[i]:
-                if st.button(f"{choice}", key=key, use_container_width=True):
-                    verifier_reponse_qcm(choice, verbe['past'], 'simple_past')
+                if not st.session_state.past_correcte:
+                    st.button(f"{choice}", key=key, use_container_width=True, on_click=verifier_reponse_qcm, args=(choice, verbe['past'], 'simple_past'))
+                else:
+                    # Afficher le texte statique si la réponse est correcte
+                    st.write(f"**{choice}**" if i == index_bonne_past else choice)
+
+                    # AFFICHAGE DU BOUTON SOUS LA BONNE RÉPONSE
+                    if st.session_state.past_correcte and i == index_bonne_past:
+                        st.button("✅ Question suivante", on_click=passer_a_la_question_suivante_qcm, use_container_width=True)
 
 # --- LOGIQUE SAISIE (Version 2) ---
 
@@ -332,7 +377,11 @@ def initialiser_session_saisie():
     if 'df_correction_display' not in st.session_state: st.session_state.df_correction_display = None
 
     if st.session_state.quiz_data_saisie is None:
-        st.session_state.quiz_data_saisie = random.sample(VERBES, NB_VERBES_SAISIE)
+        pool = st.session_state.get('selected_verbes') or VERBES
+        if len(pool) >= NB_VERBES_SAISIE:
+            st.session_state.quiz_data_saisie = random.sample(pool, NB_VERBES_SAISIE)
+        else:
+            st.session_state.quiz_data_saisie = random.choices(pool, k=NB_VERBES_SAISIE)
         data = {
             'Verbe Français': [v['fr'] for v in st.session_state.quiz_data_saisie],
             'Base Form': [''] * NB_VERBES_SAISIE,
@@ -350,7 +399,6 @@ def initialiser_session_saisie():
 
 def verifier_et_generer_correction_saisie(df_reponses_utilisateur):
     """Vérifie les réponses, calcule le score, met à jour l'état et prépare le tableau de correction."""
-    
     df_correct = st.session_state.df_quiz_saisie
     df_correction = pd.DataFrame(index=df_correct.index)
     df_correction['Verbe Français'] = df_correct['Verbe Français']
@@ -358,78 +406,68 @@ def verifier_et_generer_correction_saisie(df_reponses_utilisateur):
     df_correction['Correction Base'] = ''
     df_correction['Simple Past Saisi'] = df_reponses_utilisateur['Simple Past']
     df_correction['Correction Past'] = ''
-    
-    erreurs_courantes = 0
-    nouveaux_points = 0
-    tout_est_correct = True
-    
-    for i in range(NB_VERBES_SAISIE):
-        key_base = f'base_{i}'
-        key_past = f'past_{i}'
-        
-        reponse_base = df_reponses_utilisateur.loc[i, 'Base Form'].strip().lower()
-        correct_base = df_correct.loc[i, 'Base Form (Correct)'].strip().lower()
-        reponse_past = df_reponses_utilisateur.loc[i, 'Simple Past'].strip().lower()
-        correct_past = df_correct.loc[i, 'Simple Past (Correct)'].strip().lower()
 
-        # --- LOGIQUE BASE FORM ---
-        if st.session_state.tentatives_par_cellule[key_base] != -1: 
-            if reponse_base == correct_base:
-                nouveaux_points += calculer_points(st.session_state.tentatives_par_cellule[key_base], MAX_POINTS_PAR_CELLULE)
-                st.session_state.tentatives_par_cellule[key_base] = -1 
-                df_correction.loc[i, 'Correction Base'] = '✅'
-            elif reponse_base != '':
-                erreurs_courantes += 1
-                st.session_state.tentatives_par_cellule[key_base] += 1
-                df_correction.loc[i, 'Correction Base'] = f"❌ {df_correct.loc[i, 'Base Form (Correct)']}"
-                tout_est_correct = False
-            else:
-                df_correction.loc[i, 'Correction Base'] = '❔'
-                tout_est_correct = False
-        else: 
+    nouveaux_points = 0
+
+    # Single-attempt mode: on donne une seule vérification. Pour chaque cellule incorrecte,
+    # on affiche la bonne réponse dans la colonne de correction et on remplace la réponse
+    # utilisateur par la réponse correcte pour montrer la solution.
+    for i in range(NB_VERBES_SAISIE):
+        # Base
+        user_base = str(df_reponses_utilisateur.loc[i, 'Base Form']).strip()
+        correct_base_raw = str(df_correct.loc[i, 'Base Form (Correct)'])
+        correct_bases = [c.strip() for c in correct_base_raw.split(',')]
+        if user_base.lower() in [c.lower() for c in correct_bases] and user_base != '':
             df_correction.loc[i, 'Correction Base'] = '✅'
-            
-        # --- LOGIQUE SIMPLE PAST ---
-        if st.session_state.tentatives_par_cellule[key_past] != -1: 
-            if reponse_past == correct_past:
-                nouveaux_points += calculer_points(st.session_state.tentatives_par_cellule[key_past], MAX_POINTS_PAR_CELLULE)
-                st.session_state.tentatives_par_cellule[key_past] = -1 
-                df_correction.loc[i, 'Correction Past'] = '✅'
-            elif reponse_past != '':
-                erreurs_courantes += 1
-                st.session_state.tentatives_par_cellule[key_past] += 1
-                df_correction.loc[i, 'Correction Past'] = f"❌ {df_correct.loc[i, 'Simple Past (Correct)']}"
-                tout_est_correct = False
-            else:
-                df_correction.loc[i, 'Correction Past'] = '❔'
-                tout_est_correct = False
-        else: 
+            nouveaux_points += MAX_POINTS_PAR_CELLULE
+        else:
+            df_correction.loc[i, 'Correction Base'] = f"❌ {correct_base_raw}"
+            # Remplacer la réponse par la réponse correcte pour affichage
+            st.session_state.df_quiz_saisie.at[i, 'Base Form'] = correct_base_raw
+
+        # Past
+        user_past = str(df_reponses_utilisateur.loc[i, 'Simple Past']).strip()
+        correct_past_raw = str(df_correct.loc[i, 'Simple Past (Correct)'])
+        correct_pasts = [c.strip() for c in correct_past_raw.split(',')]
+        if user_past.lower() in [c.lower() for c in correct_pasts] and user_past != '':
             df_correction.loc[i, 'Correction Past'] = '✅'
-            
+            nouveaux_points += MAX_POINTS_PAR_CELLULE
+        else:
+            df_correction.loc[i, 'Correction Past'] = f"❌ {correct_past_raw}"
+            st.session_state.df_quiz_saisie.at[i, 'Simple Past'] = correct_past_raw
+
+    # Mettre à jour le score et marquer le quiz comme terminé (une seule tentative)
     st.session_state.score_total += nouveaux_points
-    st.session_state.nb_erreurs = erreurs_courantes
-    st.session_state.quiz_termine = tout_est_correct
     st.session_state.df_correction_display = df_correction.copy()
-    
-    st.session_state.df_quiz_saisie.loc[:, 'Base Form'] = df_reponses_utilisateur['Base Form']
-    st.session_state.df_quiz_saisie.loc[:, 'Simple Past'] = df_reponses_utilisateur['Simple Past']
+    st.session_state.quiz_termine = True
 
 def executer_quiz_saisie():
     initialiser_session_saisie()
     
     st.title("✍️ Exercice de Saisie : Verbes Irréguliers")
-    st.header(f"Score actuel : **{st.session_state.score_total}** points")
     st.markdown("---")
 
     if st.session_state.quiz_termine:
         st.balloons()
         st.success(f"🎉 **Félicitations !** Vous avez complété tous les verbes. Score final : **{st.session_state.score_total}** points.")
+        st.markdown("---")
+        st.markdown("### Contrôles de l'Exercice")
+        cols = st.columns([1, 2])
+        with cols[0]:
+            if st.button("Reconfigurer"):
+                st.session_state.started = False
+                # le rerun est implicite après le clic sur le bouton
+            
+        with cols[1]:
+            if st.button("Réinitialiser le Quiz Actuel"):
+                reinitialiser_session()
+                # le rerun est implicite après le clic sur le bouton
+        
         if st.button("Commencer un nouveau quiz de Saisie"):
             reinitialiser_session()
         return
 
-    st.markdown("Veuillez saisir la **Base Form** et le **Simple Past** (Prétérit) des verbes ci-dessous.")
-    st.markdown(f"*(**Max. {MAX_POINTS_PAR_CELLULE} points** par cellule pour la première tentative.)*")
+    st.markdown("Veuillez saisir la **Base Form** et le **Simple Past** des verbes ci-dessous.")
     
     df_display = st.session_state.df_quiz_saisie[['Verbe Français', 'Base Form', 'Simple Past']].copy()
 
@@ -445,19 +483,20 @@ def executer_quiz_saisie():
             height=37 + 35 * NB_VERBES_SAISIE 
         )
 
-        submitted = st.form_submit_button("Vérifier les réponses et mettre à jour le score")
+        submitted = st.form_submit_button("Vérifier les réponses")
 
     if submitted:
         verifier_et_generer_correction_saisie(edited_df_form)
         
         if st.session_state.quiz_termine:
-            st.rerun()
+            # Le rerun est implicite après la soumission du formulaire
+            pass
         else:
             if st.session_state.nb_erreurs > 0:
                 st.warning(f"⚠️ Il reste **{st.session_state.nb_erreurs} erreurs** ou réponses manquantes (❔). Corrigez dans le tableau ci-dessus et vérifiez à nouveau.")
             else:
                  st.info("👍 Aucune nouvelle erreur n'a été trouvée. Continuez de corriger les champs manquants.")
-            st.rerun()
+            # Le rerun est implicite après la soumission du formulaire
 
     if st.session_state.df_correction_display is not None:
         st.markdown("---")
@@ -491,35 +530,93 @@ def menu_principal():
         initial_sidebar_state="collapsed"
     )
     
-    st.sidebar.title("Configuration de l'Exercice")
+    # Controls moved from sidebar into the main page for simpler management
+    options = [f"{v['id']}: {v['base']} — {v['fr']}" for v in VERBES]
+
+    # Ensure we have a 'started' flag in session state
+    if 'started' not in st.session_state:
+        st.session_state.started = False
     
-    # 1. Sélection du Mode
-    mode = st.sidebar.selectbox(
-        "Choisissez le mode d'exercice :",
-        ["Sélectionner un mode", "1. QCM (Choix de Réponse - 15 verbes)", "2. Saisie de Texte (Tableau - 10 verbes)"],
-        key='mode_selectionne',
-        index=0 if 'mode_selectionne' not in st.session_state or st.session_state.mode_selectionne == "Sélectionner un mode" else 
-              (1 if st.session_state.mode_selectionne == "1. QCM (Choix de Réponse - 15 verbes)" else 2)
-    )
+    # NOTE: le mode sera déterminé APRÈS l'affichage des contrôles ci-dessous,
+    # afin que les clics sur les boutons "Démarrer QCM/Saisie" soient pris en compte
+    # (les boutons écrivent dans `st.session_state.selected_mode` durant la même passe).
 
-    if st.sidebar.button("Redémarrer l'exercice"):
-        reinitialiser_session()
-        st.session_state.mode_selectionne = "Sélectionner un mode" # Réinitialise le selectbox
-        st.rerun()
+    # If not started, show full configuration UI; once started, hide it
+    if not st.session_state.started:
+        st.title("🧠 Le Maître des Verbes Irréguliers")
+        st.markdown("## Configuration de l'Exercice")
+        st.markdown("---")
 
-    st.sidebar.markdown("---")
+        controls_col, info_col = st.columns([1, 2])
+
+        with controls_col:
+            st.markdown("### Choisir les verbes (optionnel)")
+            selected_labels = st.multiselect(
+                "Cochez les verbes à inclure (laisser vide = aléatoire)",
+                options,
+                key='verbs_selected_labels'
+            )
+
+            # Boutons pratiques pour tout sélectionner / effacer
+            def _set_labels_by_range(start, end):
+                st.session_state['verbs_selected_labels'] = [opt for opt in options if int(opt.split(":")[0]) in range(start, end + 1)]
+
+            def _select_all():
+                st.session_state['verbs_selected_labels'] = options
+
+            def _clear_selection():
+                st.session_state['verbs_selected_labels'] = []
+                st.session_state['selected_verbes'] = None
+
+            cols_range = st.columns([1,1,1])
+            with cols_range[0]:
+                st.button("Sélection 1-35", on_click=_set_labels_by_range, args=(1, 35))
+            with cols_range[1]:
+                st.button("Sélection 36-70", on_click=_set_labels_by_range, args=(36, 70))
+            with cols_range[2]:
+                st.button("Sélection 71-100", on_click=_set_labels_by_range, args=(71, 100))
+
+            cols_select = st.columns([1,1])
+            with cols_select[0]:
+                st.button("Tout sélectionner", on_click=_select_all)
+            with cols_select[1]:
+                st.button("Effacer la sélection", on_click=_clear_selection)
+
+            # Mettre à jour `selected_verbes` (liste de dicts) utilisable par les initialisateurs
+            if 'verbs_selected_labels' in st.session_state and st.session_state.verbs_selected_labels:
+                try:
+                    selected_ids = [int(s.split(":")[0]) for s in st.session_state.verbs_selected_labels]
+                    st.session_state.selected_verbes = [v for v in VERBES if v['id'] in selected_ids]
+                except Exception:
+                    st.session_state.selected_verbes = None
+            elif 'selected_verbes' not in st.session_state:
+                st.session_state.selected_verbes = None
+
+            st.markdown("---")
+            st.markdown("### Choisissez le mode d'exercice")
+            cols_mode = st.columns([1, 1, 1])
+            with cols_mode[0]:
+                if st.button("QCM"):
+                    st.session_state.selected_mode = "1. QCM (Choix de Réponse - 15 verbes)"
+                    st.session_state.started = True
+            with cols_mode[1]:
+                if st.button("Saisie"):
+                    st.session_state.selected_mode = "2. Saisie de Texte (Tableau - 10 verbes)"
+                    st.session_state.started = True
 
 
-    # 2. Exécution du Mode Sélectionné
-    if mode == "1. QCM (Choix de Réponse - 15 verbes)":
-        executer_quiz_qcm()
-    elif mode == "2. Saisie de Texte (Tableau - 10 verbes)":
-        executer_quiz_saisie()
-    else:
-        st.title("Bienvenue au Maître des verbes irréguliers !")
-        st.markdown("Veuillez choisir un mode d'exercice dans le menu déroulant à gauche pour commencer :")
-        st.markdown("* **Mode QCM :** Test rapide pour identifier la Base Form et le Simple Past parmi des choix multiples.")
-        st.markdown("* **Mode Saisie :** Exercice de mémorisation où vous devez écrire les deux formes dans un tableau.")
-        
+
+    # Déterminer le mode EFFECTIF après le rendu des contrôles ci-dessus
+    mode = st.session_state.get('selected_mode', st.session_state.get('mode_selectionne', "Sélectionner un mode"))
+
+    # --- Lancement du Quiz ---
+    if st.session_state.started:
+        if mode == "1. QCM (Choix de Réponse - 15 verbes)":
+            executer_quiz_qcm()
+        elif mode == "2. Saisie de Texte (Tableau - 10 verbes)":
+            executer_quiz_saisie()
+        elif mode == "Sélectionner un mode":
+            st.warning("Veuillez choisir un mode d'exercice pour commencer.")
+
 if __name__ == '__main__':
     menu_principal()
