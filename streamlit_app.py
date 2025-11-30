@@ -123,17 +123,38 @@ def transition_vers_simple_past_qcm():
     st.session_state.phase = 'simple_past'
 
 def verifier_reponse_qcm(reponse_utilisateur, bonne_reponse, type_question):
+    # Récupérer les choix actuels pour pouvoir identifier la colonne de la bonne réponse
+    choices = st.session_state.choices_base if type_question == 'base_form' else st.session_state.choices_past
+    
     if reponse_utilisateur == bonne_reponse:
         st.success("🎉 **Bonne réponse !**")
         
         points = calculer_points(st.session_state.tentatives_base if type_question == 'base_form' else st.session_state.tentatives_past, 3)
         st.session_state.score_qcm += points
         
-        if type_question == 'base_form':
-            st.session_state.base_correcte = True
-        else:
-            st.button("✅ Question suivante", on_click=passer_a_la_question_suivante_qcm)
+        # --- NOUVELLE LOGIQUE POUR POSITIONNER LE BOUTON SUIVANT ---
+        
+        # 1. Trouver l'index de la bonne réponse
+        try:
+            index_bonne_reponse = choices.index(bonne_reponse)
+        except ValueError:
+            # Sécurité si la bonne réponse n'est pas trouvée (ne devrait pas arriver)
+            index_bonne_reponse = 0
 
+        # 2. Créer les colonnes (doit correspondre au nombre de choix de la question actuelle)
+        # Note : On recrée les colonnes ici pour garantir l'alignement
+        cols_alignment = st.columns(len(choices))
+        
+        with cols_alignment[index_bonne_reponse]:
+            # 3. Placer le bouton 'Question suivante' directement sous la bonne réponse
+            if type_question == 'base_form':
+                # Pour Base Form, on passe à l'étape Simple Past
+                st.button("👉 Continuer vers le Simple Past", on_click=transition_vers_simple_past_qcm, use_container_width=True)
+            else:
+                # Pour Simple Past, on passe à la question suivante
+                st.button("✅ Question suivante", on_click=passer_a_la_question_suivante_qcm, use_container_width=True)
+        # ----------------------------------------------------------------
+        
         st.info(f"Vous avez gagné **{points} points** pour cette étape. Score total : **{st.session_state.score_qcm}**")
         st.session_state.choices_base = [] 
         st.session_state.choices_past = [] 
@@ -142,11 +163,13 @@ def verifier_reponse_qcm(reponse_utilisateur, bonne_reponse, type_question):
         st.warning("❌ **Mauvaise réponse.** Essayez encore !")
         if type_question == 'base_form':
             st.session_state.tentatives_base += 1
-            st.session_state.choices_base.remove(reponse_utilisateur)
+            if reponse_utilisateur in st.session_state.choices_base:
+                 st.session_state.choices_base.remove(reponse_utilisateur)
         else:
             st.session_state.tentatives_past += 1
-            st.session_state.choices_past.remove(reponse_utilisateur)
-        st.rerun() 
+            if reponse_utilisateur in st.session_state.choices_past:
+                 st.session_state.choices_past.remove(reponse_utilisateur)
+        st.rerun()
 
 def executer_quiz_qcm():
     initialiser_session_qcm()
