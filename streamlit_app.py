@@ -151,7 +151,7 @@ def verifier_reponse_qcm(reponse_utilisateur, bonne_reponse, type_question):
 def executer_quiz_qcm():
     initialiser_session_qcm()
     
-    st.title("🧠 QCM : Le Maître des Verbes Irréguliers")
+    st.title("🧠 Le Maître des Verbes Irréguliers")
     
     col_score, col_progress = st.columns([1, 2])
     
