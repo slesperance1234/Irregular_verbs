@@ -5,7 +5,7 @@ import pandas as pd
 # --- 1. Définition des données des verbes irréguliers ---
 
 VERBES = [
-    // Verbes de la seconde image (lignes 1 à 35)
+    # Verbes de la seconde image (lignes 1 à 35)
     {"id": 1, "base": "awake", "past": "awoke", "participle": "awoken", "fr": "réveiller"},
     {"id": 2, "base": "be", "past": "was, were", "participle": "been", "fr": "être"},
     {"id": 3, "base": "bear", "past": "bore", "participle": "born/borne", "fr": "supporter"},
@@ -42,7 +42,7 @@ VERBES = [
     {"id": 34, "base": "fight", "past": "fought", "participle": "fought", "fr": "combattre"},
     {"id": 35, "base": "find", "past": "found", "participle": "found", "fr": "trouver"},
 
-    // Verbes de votre liste initiale (lignes 36 à 70)
+    # Verbes de votre liste initiale (lignes 36 à 70)
     {"id": 36, "base": "fly", "past": "flew", "participle": "flown", "fr": "voler"},
     {"id": 37, "base": "forbid", "past": "forbade", "participle": "forbidden", "fr": "interdire"},
     {"id": 38, "base": "forget", "past": "forgot", "participle": "forgotten", "fr": "oublier"},
@@ -79,7 +79,7 @@ VERBES = [
     {"id": 69, "base": "ride", "past": "rode", "participle": "ridden", "fr": "aller à, se promener à"},
     {"id": 70, "base": "ring", "past": "rang", "participle": "rung", "fr": "sonner"},
 
-    // Verbes de la première image (lignes 71 à 100)
+    # Verbes de la première image (lignes 71 à 100)
     {"id": 71, "base": "rise", "past": "rose", "participle": "risen", "fr": "lever"},
     {"id": 72, "base": "run", "past": "ran", "participle": "run", "fr": "courir"},
     {"id": 73, "base": "say", "past": "said", "participle": "said", "fr": "dire"},
